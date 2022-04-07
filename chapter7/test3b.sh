@@ -1,0 +1,4 @@
+#!/bin/bash
+# Using basename with the $0 parameter
+name=$(basename $0)
+echo The script name is: $name
