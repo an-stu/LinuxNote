@@ -4158,3 +4158,334 @@ Linux系统和应用程序可以生成超过30个信号。表9-1列出了在Linu
 通过SIGINT信号，可以中断shell。Linux内核会停止为shell分配CPU处理时间。这种情况发生时，shell会将SIGINT信号传给所有由它所启用的进程，以此告知出现的状况。
 
 shell会将这些信号传给shell脚本程序来处理。而shell脚本的默认行为是忽略这些信号。它们可能不利于脚本的运行。要避免这种情况，你可以在脚本中加入识别信号的代码，并执行命令来处理信号。
+
+#### 9.1.2 生成信号
+
+bash shell允许用键盘上的组合键来生成两种基本的Linux信号。这个特性在需要停止或暂停失控程序时非常方便。
+
+**1.中断进程**
+
+`Ctrl+C`组合键会生成SIGINT信号，并将其发送给当前在shell中运行的所有进程。可以运行一条需要很长时间才能完成的命令，然后按下`Ctrl+C`组合键来测试它。
+
+```shell
+$ sleep 100
+^C
+```
+
+`Ctrl+C`组合键会发送SIGINT信号，停止shell中当前运行的进程。`sleep`命令会使得shell暂停指定的秒数，命令提示符知道计时器超时才会返回。在超时前按下`Ctrl+C`组合键，就可以提前终止`sleep`命令。
+
+**2.暂停进程**
+
+你可以在进程运行期间暂停进程，而无需终止它。尽管有时这可能比较危险（比如，脚本打开了一个关键的系统文件的文件锁），但通常它可以在不终止进程的情况下使你能够深入脚本内部一探究竟。
+
+`Ctrl+Z`组合键会生成一个SIGTSTP信号，停止shell中运行的任何进程。停止（stopping）进程跟终止（terminating）进程不同：停止进程会让程序继续保留在内存中，并能从上次停止的位置继续运行。后面会介绍如何重启一个已经停止的进程。
+
+当使用`Ctrl+Z`组合键时，shell会通知你进程已经被停止了（本人终端改为zsh，所以有些显示不太一样，比如stopped）。
+
+```shell
+$ sleep 100
+^Z
+[1]  + 5953 suspended  sleep 100
+```
+
+方括号中的数字时shell分配的作业号（job number）。shell将shell中运行的每个进程称为作业，并为每个作业分配唯一的作业号。它会给第一个作业分配作业号1，第二个作业号2，以此类推。
+
+如果你的shell会话有一个已停止的作业，在退出shell时，bash会提醒你。
+
+```shell
+$ sleep 100
+^Z
+[1]  + 5953 suspended  sleep 100
+$ exit
+zsh: you have suspended jobs.
+```
+
+可以使用ps命令来查看已停止的作业。
+
+```shell
+$ ps -l
+F S   UID   PID  PPID  C PRI  NI ADDR SZ WCHAN  TTY          TIME CMD
+4 S  1000     9     8  0  80   0 -  4973 sigsus pts/0    00:00:03 zsh
+1 S  1000    14     8  0  80   0 -  3531 sigsus pts/0    00:00:00 zsh
+1 S  1000    44     8  0  80   0 -  4000 core_s pts/0    00:00:00 zsh
+1 S  1000    45     8  0  80   0 -  3996 -      pts/0    00:00:00 zsh
+0 S  1000    47    14  0  80   0 -  1172 -      pts/0    00:00:00 gitstatusd-linu
+0 T  1000  5953     9  0  80   0 -  2138 do_sig pts/0    00:00:00 sleep
+0 T  1000  5982     9  0  80   0 -  2138 do_sig pts/0    00:00:00 sleep
+0 R  1000 11154     9  0  80   0 -  2971 -      pts/0    00:00:00 ps
+```
+
+在S列中（进程状态），ps命令将已停止作业的状态显示为T。这说明命令要么被跟踪，要么被停止了。
+
+如果在有已停止作业存在的情况下，你仍旧想退出shell，只需要再输入一遍exit命令就行了。shell会退出，终止已停止作业。或者，既然你已经知道了作业的PID，就可以使用kill命令来发送一个SIGKILL命令来终止它。
+
+```shell
+$ kill -9 5953
+[1]  + 5953 killed     sleep 100
+```
+
+#### 9.1.3 捕获信号
+
+也可以不忽略信号，在信号出现时捕获它们并执行其它命令。`trap`命令允许你来指定shell脚本要监听shell中拦截的Linux信号。如果脚本收到了`trap`命令中列出的信号，该信号不再由shell处理，而是交由本地处理。
+
+`trap`命令的格式时：
+
+```shell
+trap commands signals
+```
+
+你只需要列出想要shell执行的命令，以及一组用空格分开的待捕获的信号。你可以用数值或Linux信号名来指定信号。
+
+这里有个简单例子，展示了如何使用`trap`命令来忽略SIGINT信号，并控制脚本的行为。
+
+```shell
+$ cat test1.sh
+#!/bin/bash
+# Testing signal trapping
+#
+trap "echo 'Sorry! I have trapped Ctrl-C'" SIGINT
+#
+echo This is a test script
+#
+count=1
+while [ $count -le 10 ]
+do
+    echo "Loop #$count"
+    sleep 1
+    count=$[ $count + 1 ]
+done
+#
+echo "This is the end of the test script"
+```
+
+本例中所用到的`trap`命令会在每次检测到SIGINT信号时显示一行简单的文本消息。捕获这些信号会阻止用户用bash shell组合键`Ctrl+C`来停止程序。
+
+```shell
+$ ./test1.sh
+This is a test script
+Loop #1
+Loop #2
+Loop #3
+Loop #4
+Loop #5
+Loop #6
+^CSorry! I have trapped Ctrl-C
+Loop #7
+Loop #8
+^CSorry! I have trapped Ctrl-C
+Loop #9
+Loop #10
+^CSorry! I have trapped Ctrl-C
+This is the end of the test script
+```
+
+每次使用`Ctrl+C`组合键，脚本都会执行`trap`命令中指定的`echo`语句，而不是处理该信号并允许shell停止改脚本。
+
+#### 9.1.4 捕获脚本输出
+
+除了在shell脚本中捕获信号，你也可以在shell脚本退出时进行捕获。这就是在shell完成任务时执行命令的一种简便方法。
+
+要捕获shell脚本的退出，只要在`trap`命令后加上`EXIT`命令就行。
+
+```shell
+$ cat test2.sh
+#!/bin/bash
+# Trapping the script exit
+#
+trap "echo Goodbye..." EXIT
+#
+count=1
+while [ $count -le 5 ]
+do
+    echo "Loop #$count"
+    sleep 1
+    count=$[ $count + 1 ]
+done
+$ ./test2.sh
+Loop #1
+Loop #2
+Loop #3
+Loop #4
+Loop #5
+Goodbye...
+```
+
+当脚本运行到正常的退出位置时，捕获就会触发了，shell会执行在`trap`命令行指定的命令。如果提前退出脚本，同样能够捕获到`EXIT`。
+
+```shell
+$ ./test2.sh
+Loop #1
+Loop #2
+Loop #3
+^CGoodbye...
+
+```
+
+因为`SIGINT`信号并没有出现在`trap`命令的捕获列表中，当按下`Ctrl+C`组合键发送`SIGINT`信号时，脚本就退出了。但在脚本退出前捕获到了`EXIT`，于是shell执行了`trap`命令。
+
+#### 9.1.5 修改或移除捕获
+
+```shell
+$ cat test3.sh
+#!/bin/bash
+# Modifying a set trap
+trap "echo ' Sorry... Ctrl+C is trapped.'" SIGINT
+count=1
+while [ $count -le 5 ]
+do
+    echo "Loop #$count"
+    sleep 1
+    count=$[ $count + 1 ]
+done
+trap "echo ' I modified the trap!'" SIGINT
+#
+count=1
+while [ $count -le 5 ]
+do
+    echo "Second Loop #$count"
+    sleep 1
+    count=$[ $count + 1 ]
+done
+```
+
+修改了信号捕获之后，脚本处理信号的方式就会发生变化。但如果一个信号是在捕获被修改前接收到的，那么脚本仍然会根据最初的`trap`命令进行处理。
+
+```shell
+$ ./test3.sh
+Loop #1
+Loop #2
+Loop #3
+^C Sorry... Ctrl+C is trapped.
+Loop #4
+Loop #5
+Second Loop #1
+Second Loop #2
+Second Loop #3
+^C I modified the trap!
+Second Loop #4
+Second Loop #5
+```
+
+也可以删除已设置好的捕获。只需要在`trap`命令与希望恢复默认的信号列表之间加上两个破折号就行了。
+
+```shell
+$ cat test3b.sh
+#!/bin/bash
+# Removing a set trap
+trap "echo ' Sorry... Ctrl+C is trapped.'" SIGINT
+count=1
+while [ $count -le 5 ]
+do
+    echo "Loop #$count"
+    sleep 1
+    count=$[ $count + 1 ]
+done
+# Remove the trap
+trap -- SIGINT
+echo "I just removed the trap"
+#
+count=1
+while [ $count -le 5 ]
+do
+    echo "Second Loop #$count"
+    sleep 1
+    count=$[ $count +1 ]
+done
+$ ./test3b.sh
+Loop #1
+Loop #2
+Loop #3
+Loop #4
+Loop #5
+^C Sorry... Ctrl+C is trapped.
+I just removed the trap
+Second Loop #1
+Second Loop #2
+Second Loop #3
+Second Loop #4
+^C
+```
+
+> 也可以在trap命令后使用单破折号来恢复信号的默认行为。单破折号和双破折号都可以正常发挥作用。
+
+移除信号捕获后，脚本按照默认行为来处理`SIGINT`信号，也就是终止脚本运行。但如果信号是在捕获被移除前接收到的，那么脚本会按照原先`trap`命令中的设置进行处理。
+
+本例中，第一个`Ctrl+C`组合键用于提前终止脚本，但是信号在捕获被移除前已经接收到了，所以脚本会依旧执行`trap`中指定的命令。捕获随后被移除，再按`Ctrl+C`就能够提前终止脚本了。
+
+### 9.2 以后台模式运行脚本
+
+直接在命令行界面运行shell脚本有时不怎么方便，一些脚本可能要执行很长一段时间，而你可能不想在命令行界面一直干等着。当脚本在运行时，没法在终端会话做别的事情，幸好有个简单的方法可以解决。
+
+在使用`ps`命令时，你会看到在Linux系统上的一系列不同进程。显然，这些进程都不是运行在你的终端显示器上的。这样的现象被称为在后台（background）运行进程。
+
+下面几节将会介绍如何在Linux系统上以后台模式运行脚本。
+
+#### 9.2.1 后台运行脚本
+
+以后台模式运行脚本非常简单。只要在命令后加个\&符就行了。
+
+```shell
+$ cat test4.sh
+#!/bin/bash
+# Test running in the background
+count=1
+while [ $count -le 10 ]
+do
+    sleep 1
+    count=$[ $count + 1 ]
+done
+$ ./test4.sh &
+[1] 15538
+```
+
+当&符放到命令后，它会将命令和bash shell分离开来，将命令作为系统中的一个独立的进程运行。显示的第一行是：
+
+```shell
+[1] 15538
+```
+
+方括号中的数字是shell分配给后台进程的作业号。下一个数是Linux系统分配给进程的进程ID（PID）。Linux系统上运行的每个进程都必须有一个唯一的PID。
+
+一旦系统显示了这些内容，新的命令行界面提示符就出现了。你可以回到shell，而你所执行的命令正在以后台模式安全的运行。这时，你可以在提示符内输入新的命令。
+
+当后台进程结束时，它会在终端上显示出一条消息：
+
+```shell
+[1]  + 15538 done       ./test4.sh
+```
+
+这表明了作业的作业号以及作业状态（done），还有用于启动作业的命令。
+
+注意，当后台进程运行时，他仍然会使用终端显示器来显示STDOUT和STDERR消息。
+
+```shell
+$ cat test5.sh
+#!/bin/bash
+# Test running in the background with output
+#
+echo "Start the test script"
+count=1
+while $[ $count -le 5 ]
+do
+    echo "Loop #$count"
+    sleep 5
+    count=$[ $count + 1 ]
+done
+#
+echo "Test script is complete"
+$ ./test5.sh &
+[1] 21155
+Start the test script
+Loop #1
+$ Loop #2
+Loop #3
+Loop #4
+Loop #5
+Test script is complete
+
+[1]  + 21155 done       ./test5.sh
+```
+
+在上面的例子中，脚本test5.sh的输出与shell提示符混杂在一起，这也是为什么输出中有一个提示符\$的原因。
+
+在显示输出的同时，你仍然可以运行命令。但是脚本输入、输出的命令以及命令输出全部混在了一起。完全看不清楚！所以我们最好将后台运行的脚本的STDOUT和STDERR进行重定向，避免这种杂乱的输出。
